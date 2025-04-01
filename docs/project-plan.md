@@ -13,13 +13,13 @@ This project is designed to grow practical skills in IP design, simulation, bus 
 
 ## Objectives
 
-- Implment a I2C peripheral module in SystemVerliog
+- Implement a I2C peripheral module in SystemVerliog
 - Support both standard (100 kHz) and fast (400 kHz) mode
 - Add 7-bit and 10-bit addressing support
 - Create two IPs: one with raw register access, one with a Wishbone interface
 - Develop testbench and simulate with Verilator
 - Generate waveform output for verification
-- Synthesize and deploy on Alchitry Pt V2 board using Alchitry Br V2 to breackout signals
+- Synthesize and deploy on Alchitry Pt V2 board using Alchitry Br V2 to breakout signals
 
 ## Tools and Technologies
 
@@ -45,7 +45,7 @@ This project is designed to grow practical skills in IP design, simulation, bus 
 | Milestone                                | Status          | Date Completed |
 |------------------------------------------|-----------------|----------------|
 | Project repo created                     | ✅ Done        | Mar 29, 2025|
-| Write initial I2C periphal module        | ⏳ In Progress ||
+| Write initial I2C peripheral module        | ⏳ In Progress ||
 | Create testbench and run simulation      | ⏳ Planned     ||
 | Add 10-bit addressing support            | ⏳ Planned     ||
 | Synthesize and test on Alcitry Pt V2     | ⏳ Planned     ||
@@ -53,7 +53,7 @@ This project is designed to grow practical skills in IP design, simulation, bus 
 
 ## Test Plan
 - Simulate write/read from the same register with waveform validation
-- Create Python script on Raspberry Pi to:
+- Create Python script on Raspberry Pi too:
   - Write to all registers
   - Read back values and verify correctness
 - Confirm ACK/NACK and repeated start handling in simulation
@@ -61,3 +61,4 @@ This project is designed to grow practical skills in IP design, simulation, bus 
 ## Notes
 - Follow I²C timing specs per [NXP UM10204](https://www.nxp.com/docs/en/user-guide/UM10204.pdf)
 - Wishbone interface to follow [B4 Specification](https://cdn.opencores.org/downloads/wbspec_b4.pdf)
+
