@@ -1,4 +1,5 @@
 `default_nettype none
+`timescale 1ns/100ps
 
 //===================================================================
 //  File: i2c_peripheral.sv
@@ -27,7 +28,7 @@ module i2c_peripheral #(
         inout wire logic io_sda,
 
         // Register reading signals
-        output logic o_register_address,
+        output logic[7:0] o_register_address,
         output logic o_read_enable,
         input wire logic[7:0] i_register_data,
         input wire logic i_read_valid,
@@ -101,7 +102,7 @@ module i2c_peripheral #(
 
     // Signals for data transmition
     logic[7:0] data_register;
-    logic[2:0] shift_counter;
+    logic[3:0] shift_counter;
     logic data_shift_enable;
     logic rw_n;
 
@@ -155,9 +156,18 @@ module i2c_peripheral #(
             //   default:
             REG_ADDRESS:
                 if(byte_transmitted)
-                    next_state = WRITE;
+                    next_state = ACK_REG;
                 else
                     next_state = REG_ADDRESS;
+            ACK_REG:
+                if(start_condition)
+                    next_state = I2C_ADDRESS;
+                else if (stop_condition)
+                    next_state = IDLE;
+                else if (scl_falling_edge)
+                    next_state = WRITE;
+                else
+                    next_state = ACK_REG;
             WRITE:
                 if(start_condition)
                     next_state = I2C_ADDRESS;
@@ -202,24 +212,34 @@ module i2c_peripheral #(
     end
 
     logic watchdog_run;
-    logic write_data;
-    logic read_data;
+    logic send_data;
+    logic receive_data;
+    logic ack;
 
     always_comb
     begin : FSM_Outputs
         watchdog_run = 1'b1;
-        write_data = 1'b0;
-        read_data = 1'b0;
+        send_data = 1'b0;
+        receive_data = 1'b0;
+        ack = 1'b0;
 
         case (current_state)
             IDLE:
                 watchdog_run = 1'b0;
             I2C_ADDRESS:
-                read_data = 1'b1;
+                receive_data = 1'b1;
+            ACK_ADDRESS:
+                ack = 1'b1;
+            REG_ADDRESS:
+                receive_data = 1'b1;
+            ACK_REG:
+                ack = 1'b1;
             WRITE:
-                write_data = 1'b1;
+                receive_data = 1'b1;
+            ACK_WRITE:
+                ack = 1'b1;
             READ:
-                read_data = 1'b1;
+                send_data = 1'b1;
             // default:
         endcase
 
@@ -228,8 +248,8 @@ module i2c_peripheral #(
 
 
 
-    assign data_shift_enable = (write_data && scl_rising_edge) ? 1'b1 :
-           (read_data && scl_falling_edge) ? 1'b1 : 1'b0; // Shifts the data_register on the rising edge of SCL if controller is writing, on the falling edge of SCL if controller is reading
+    assign data_shift_enable = (receive_data && scl_rising_edge) ? 1'b1 :
+           (send_data && scl_falling_edge) ? 1'b1 : 1'b0; // Shifts the data_register on the rising edge of SCL if controller is writing, on the falling edge of SCL if controller is reading
 
     assign rw_n = data_register[0];
 
@@ -238,7 +258,7 @@ module i2c_peripheral #(
         if(!i_rst_n)
             data_register <= 0;
         else if (data_shift_enable)
-            if (write_data)
+            if (receive_data)
                 data_register <= {data_register[6:0], sda};
             else
                 data_register <= {data_register[6:0], 1'b1};
@@ -251,19 +271,20 @@ module i2c_peripheral #(
             if (current_state == REG_ADDRESS && next_state != REG_ADDRESS) // Needs updating to support auto-increment
                 o_register_address <= data_register;
 
-    assign io_sda = (read_data && !data_register[7]) ? 1'b0 : 1'bZ;
+    assign io_sda = (send_data && !data_register[7]) ? 1'b0 :
+           (ack) ? 1'b0 : 1'bZ;
 
     always_ff @(posedge i_sys_clk)
     begin
         if(!i_rst_n)
             shift_counter <= 0;
-        else if ((write_data || read_data) && data_shift_enable)
+        else if ((send_data || receive_data) && data_shift_enable)
             shift_counter <= shift_counter + 1'b1;
-        else if (!(write_data || read_data))
+        else if (!(send_data || receive_data))
             shift_counter <= 0;
     end
 
-    assign byte_transmitted = (shift_counter == 4'd8) ? 1'b1 : 1'b0;
+    assign byte_transmitted = (shift_counter == 4'd8 && scl_falling_edge) ? 1'b1 : 1'b0;
 
     assign peripheral_address_match = (data_register[7:1] == I2C_PERIPHERAL_ADDRESS) ? 1'b1 : 1'b0; // Only supports 7-bit addresses. Needs updating to support 10-bit address
 
