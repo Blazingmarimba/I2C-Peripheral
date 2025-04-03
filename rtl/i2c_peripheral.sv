@@ -41,6 +41,8 @@ module i2c_peripheral #(
 
     );
 
+    // assign o_register_data = 8'h00;
+
     localparam WATCHDOG_TIMER_WIDTH = $clog2(WATCHDOG_TIMER_COUNT + 1);
 
     logic scl; // Synchronized SCL input.
@@ -108,7 +110,7 @@ module i2c_peripheral #(
 
     logic peripheral_address_match;
 
-    typedef enum logic[3:0] { IDLE, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, ERROR } FSM_States; // Need to add states to support 10-bit addresses
+    typedef enum logic[3:0] { IDLE, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, REPEAT_START, ERROR } FSM_States; // Need to add states to support 10-bit addresses
 
     FSM_States current_state;
     FSM_States next_state;
@@ -143,7 +145,7 @@ module i2c_peripheral #(
                 if(stop_condition)
                     next_state = IDLE;
                 else if(start_condition)
-                    next_state = I2C_ADDRESS;
+                    next_state = REPEAT_START;
                 else
                     next_state = OTHER_PERIPHERAL;
             ACK_ADDRESS:
@@ -161,7 +163,7 @@ module i2c_peripheral #(
                     next_state = REG_ADDRESS;
             ACK_REG:
                 if(start_condition)
-                    next_state = I2C_ADDRESS;
+                    next_state = REPEAT_START;
                 else if (stop_condition)
                     next_state = IDLE;
                 else if (scl_falling_edge)
@@ -170,7 +172,7 @@ module i2c_peripheral #(
                     next_state = ACK_REG;
             WRITE:
                 if(start_condition)
-                    next_state = I2C_ADDRESS;
+                    next_state = REPEAT_START;
                 else if (stop_condition)
                     next_state = IDLE;
                 else if(byte_transmitted)
@@ -184,7 +186,7 @@ module i2c_peripheral #(
                     next_state = ACK_WRITE;
             READ_PREP:
                 if (start_condition)
-                    next_state = I2C_ADDRESS;
+                    next_state = REPEAT_START;
                 else if (stop_condition)
                     next_state = IDLE;
                 else if(i_read_valid)
@@ -203,6 +205,8 @@ module i2c_peripheral #(
                     next_state = READ_PREP;
                 else
                     next_state = READ_DONE;
+            REPEAT_START:
+                next_state = I2C_ADDRESS;
         endcase
 
         // Watchdog expire transition
