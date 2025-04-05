@@ -29,7 +29,7 @@ module tb_i2c_peripheral ();
     logic[7:0] register_address;
     logic read_enable;
     logic[7:0] read_register_data;
-    logic read_valid;
+    logic read_valid = 0;
     logic read_ack;
 
     logic[7:0] write_register_data;
@@ -205,10 +205,13 @@ module tb_i2c_peripheral ();
         repeat_start();
         transmit_byte({i2c_address, 1'b1}, ack);
         if(i2c_address == I2C_PERIPHERAL_ADDRESS)
+        read_valid = 1'b1;
+        @(negedge scl);
         begin
             if (read_enable !== 1'b1)
             begin
                 $display("ERROR: [%0t] Expected o_read_enble to be high, got %b", $time, read_enable);
+                total_errors = total_errors + 1;
             end
             read_register_data = data;
             if(sys_clk)
@@ -221,14 +224,17 @@ module tb_i2c_peripheral ();
             if (read_ack !== 1'b1)
             begin
                 $display("ERROR: [%0t] Expected o_read_ack to be high, got %b", $time, read_enable);
+                total_errors = total_errors + 1;
             end
         end
         receive_byte(data, 1'b1, r_data);
+        read_valid = 1'b0;
         if(i2c_address == I2C_PERIPHERAL_ADDRESS)
         begin
-            if(r_data !== data)
+            if(r_data !== data) begin
                 $display("ERROR: [%0t] Expected to received %0h, got %h", $time, data, r_data);
-
+                total_errors = total_errors + 1;
+            end
         end
         stop_condition();
         #1.3us;
