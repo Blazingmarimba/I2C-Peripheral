@@ -97,6 +97,8 @@ module i2c_peripheral #(
     assign start_condition = (sda_falling_edge && scl) ? 1'b1 : 1'b0;
     assign stop_condition = (sda_rising_edge && scl) ? 1'b1 : 1'b0;
 
+    logic [7:0] increment_counter;
+
     // Finit State Machine (FSM)
 
     logic watchdog_expire;
@@ -110,7 +112,7 @@ module i2c_peripheral #(
 
     logic peripheral_address_match;
 
-    typedef enum logic[3:0] { IDLE, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, REPEAT_START, ERROR } FSM_States; // Need to add states to support 10-bit addresses
+    typedef enum logic[3:0] { IDLE, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, REPEAT_START, READ_INCREMENT, WRITE_INCREMENT, ERROR } FSM_States; // Need to add states to support 10-bit addresses
 
     FSM_States current_state;
     FSM_States next_state;
@@ -181,9 +183,12 @@ module i2c_peripheral #(
                     next_state = WRITE;
             ACK_WRITE:
                 if(scl_falling_edge)
-                    next_state = WRITE;
+                    next_state = WRITE_INCREMENT;
                 else
                     next_state = ACK_WRITE;
+            WRITE_INCREMENT:
+                next_state = WRITE;
+
             READ_PREP:
                 if (start_condition)
                     next_state = REPEAT_START;
@@ -195,9 +200,11 @@ module i2c_peripheral #(
                     next_state = READ_PREP;
             READ:
                 if(byte_transmitted)
-                    next_state = READ_DONE;
+                    next_state = READ_INCREMENT;
                 else
                     next_state = READ;
+            READ_INCREMENT:
+                next_state = READ_DONE;
             READ_DONE:
                 if(scl_rising_edge && sda)
                     next_state = IDLE;
@@ -226,6 +233,7 @@ module i2c_peripheral #(
         send_data = 1'b0;
         receive_data = 1'b0;
         ack = 1'b0;
+        o_read_enable = 1'b0;
 
         case (current_state)
             IDLE:
@@ -242,6 +250,8 @@ module i2c_peripheral #(
                 receive_data = 1'b1;
             ACK_WRITE:
                 ack = 1'b1;
+            READ_PREP:
+                o_read_enable = 1'b1;
             READ:
                 send_data = 1'b1;
             // default:
@@ -250,6 +260,15 @@ module i2c_peripheral #(
 
     end
 
+    always_ff @(posedge i_sys_clk)
+    begin
+        if (!i_rst_n)
+            increment_counter <= 0;
+        else if (current_state == I2C_ADDRESS)
+            increment_counter <= 0;
+        else if (current_state == READ_INCREMENT || current_state == WRITE_INCREMENT)
+            increment_counter <= increment_counter + 1;
+    end
 
 
     assign data_shift_enable = (receive_data && scl_rising_edge) ? 1'b1 :
@@ -257,10 +276,14 @@ module i2c_peripheral #(
 
     assign rw_n = data_register[0];
 
+    assign o_read_ack = (o_read_enable && i_read_valid) ? 1'b1 : 1'b0;
+
     always_ff @( posedge i_sys_clk )
     begin
         if(!i_rst_n)
             data_register <= 0;
+        else if (o_read_enable && i_read_valid)
+            data_register <= i_register_data;
         else if (data_shift_enable)
             if (receive_data)
                 data_register <= {data_register[6:0], sda};
@@ -273,7 +296,7 @@ module i2c_peripheral #(
             o_register_address <= 0;
         else
             if (current_state == REG_ADDRESS && next_state != REG_ADDRESS) // Needs updating to support auto-increment
-                o_register_address <= data_register;
+                o_register_address <= data_register + increment_counter;
 
     assign io_sda = (send_data && !data_register[7]) ? 1'b0 :
            (ack) ? 1'b0 : 1'bZ;
