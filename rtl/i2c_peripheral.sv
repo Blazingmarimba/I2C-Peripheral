@@ -206,9 +206,11 @@ module i2c_peripheral #(
             READ_INCREMENT:
                 next_state = READ_DONE;
             READ_DONE:
-                if(scl_rising_edge && sda)
+                if(stop_condition)
                     next_state = IDLE;
-                else if (scl_falling_edge && !sda)
+                else if(start_condition)
+                    next_state = I2C_ADDRESS;
+                else if (scl_rising_edge && !sda)
                     next_state = READ_PREP;
                 else
                     next_state = READ_DONE;
@@ -260,6 +262,8 @@ module i2c_peripheral #(
 
     end
 
+
+
     always_ff @(posedge i_sys_clk)
     begin
         if (!i_rst_n)
@@ -271,8 +275,27 @@ module i2c_peripheral #(
     end
 
 
+    always_ff@(posedge i_sys_clk)
+    begin
+        if(!i_rst_n)
+            o_register_data <= 0;
+        else if(current_state == ACK_WRITE)
+            o_register_data <= data_register;
+    end
+
+    always_ff@(posedge i_sys_clk)
+    begin
+        if(!i_rst_n)
+            o_write_valid <= 0;
+        else if (i_write_ack && o_write_valid)
+            o_write_valid <= 1'b0;
+        else if(next_state == ACK_WRITE && current_state == WRITE)
+            o_write_valid <= 1'b1;
+    end
+
+
     assign data_shift_enable = (receive_data && scl_rising_edge) ? 1'b1 :
-           (send_data && scl_falling_edge) ? 1'b1 : 1'b0; // Shifts the data_register on the rising edge of SCL if controller is writing, on the falling edge of SCL if controller is reading
+           (send_data && scl_rising_edge) ? 1'b1 : 1'b0; // Shifts the data_register on the rising edge of SCL if controller is writing, on the falling edge of SCL if controller is reading
 
     assign rw_n = data_register[0];
 
@@ -291,12 +314,20 @@ module i2c_peripheral #(
                 data_register <= {data_register[6:0], 1'b1};
     end
 
+    logic[7:0] register_address;
+
+    always_ff@(posedge i_sys_clk)
+        if(!i_rst_n)
+            register_address <= 0;
+        else
+            if (current_state == REG_ADDRESS && next_state != REG_ADDRESS) // Needs updating to support auto-increment
+                register_address <= data_register;
+
     always_ff @(posedge i_sys_clk)
         if (!i_rst_n)
             o_register_address <= 0;
         else
-            if (current_state == REG_ADDRESS && next_state != REG_ADDRESS) // Needs updating to support auto-increment
-                o_register_address <= data_register + increment_counter;
+            o_register_address <= register_address + increment_counter;
 
     assign io_sda = (send_data && !data_register[7]) ? 1'b0 :
            (ack) ? 1'b0 : 1'bZ;
