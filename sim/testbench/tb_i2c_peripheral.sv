@@ -70,7 +70,11 @@ module tb_i2c_peripheral ();
         rst_n = 1'b0;
         #100 rst_n = 1'b1;
         i2c_write_byte(7'h33, 8'h55, 8'hAA);
-        i2c_read_byte(7'h33, 8'h55, 8'hAA);
+        i2c_read_byte(7'h33, 8'hAA, 8'h55);
+
+        i2c_write_multiple_bytes(7'h33, 8'h00, 32'hDEADBEEF);
+        i2c_read_multiple_bytes(7'h33, 8'h10, 32'hDEADBEEF);
+
         $display("[%0t] Testbench done. Total Errors: %0d", $time, total_errors);
         $finish;
     end
@@ -105,7 +109,10 @@ module tb_i2c_peripheral ();
         end
         @(negedge scl);
         sda_drv = nack;
+        @(posedge scl);
         @(negedge scl);
+        sda_drv = 1'b1;
+        #1ns;
     endtask
 
     task start_condtion();
@@ -155,13 +162,13 @@ module tb_i2c_peripheral ();
             transmit_byte({i2c_address, 1'b0}, ack);
             $display("%0t: Sending Reg Address", $time);
             transmit_byte(reg_address, ack);
-            if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
-            begin
-                $display("[%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
-                total_errors = total_errors + 1;
-            end
             $display("%0t: Sending Data", $time);
             transmit_byte(data, ack);
+            if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
+            begin
+                $display("ERROR: [%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
+                total_errors = total_errors + 1;
+            end
             if(i2c_address == I2C_PERIPHERAL_ADDRESS)
             begin
                 if(write_register_data !== data)
@@ -190,6 +197,63 @@ module tb_i2c_peripheral ();
         end
     endtask
 
+    task i2c_write_multiple_bytes(input[6:0] i2c_address, input [7:0] reg_address, input[31:0] data);
+        if(i2c_address == I2C_PERIPHERAL_ADDRESS)
+            ack = 0;
+        else
+            ack = 1;
+
+        $display("%0t: Writing to device 0x%H, register 0x%H, data 0x%H", $time,  i2c_address, reg_address, data);
+        sda_drv = 1'b0; //Send START condition
+
+        $display("%0t: Sending START condition", $time);
+        #0.6us scl_enable = 1'b1;             // Minimum fat-mode start hold time
+        $display("%0t: Sending I2C Address", $time);
+        transmit_byte({i2c_address, 1'b0}, ack);
+        $display("%0t: Sending Reg Address", $time);
+        transmit_byte(reg_address, ack);
+
+        $display("%0t: Sending Data", $time);
+        for(int i = 0; i  < 32; i += 8)
+        begin
+            transmit_byte(data[7:0], ack);
+            if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
+            begin
+                $display("ERROR: [%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
+                total_errors = total_errors + 1;
+            end
+            reg_address++;
+            if(i2c_address == I2C_PERIPHERAL_ADDRESS)
+            begin
+                if(write_register_data !== data[7:0])
+                begin
+                    $display("ERROR: [%0t] Expected data %h, got %h", $time, data[7:0], write_register_data);
+                    total_errors = total_errors + 1;
+                end
+                if(write_valid === 0)
+                begin
+                    $display("ERROR: [%0t] Expected data to be valid, got %b", $time, write_valid);
+                    total_errors = total_errors + 1;
+                end
+                else
+                    write_ack = 1;
+            end
+            else if (write_valid === 1)
+            begin
+                $display("[%0t] Expected data to be not valid, got %b", $time, write_valid);
+                total_errors = total_errors + 1;
+            end
+            wait(write_valid == 0);
+            @(negedge sys_clk) write_ack = 0;
+            data = data >> 8;
+        end
+        $display("%0t: Sending STOP condition", $time);
+        @(negedge scl);
+        write_ack = 0;
+        stop_condition();
+        #1.3us;
+    endtask
+
     logic [7:0] r_data;
     task i2c_read_byte(input[6:0] i2c_address, input [7:0] reg_address, data);
         $display("%0t: Reading from device 0x%H, register 0x%H, expecting data 0x%H", $time,  i2c_address, reg_address, data);
@@ -198,14 +262,14 @@ module tb_i2c_peripheral ();
         transmit_byte(reg_address, ack);
         if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
         begin
-            $display("[%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
+            $display("ERROR: [%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
             total_errors = total_errors + 1;
         end
         $display("%0t: Starting repeat start", $time);
         repeat_start();
         transmit_byte({i2c_address, 1'b1}, ack);
         if(i2c_address == I2C_PERIPHERAL_ADDRESS)
-        read_valid = 1'b1;
+            read_valid = 1'b1;
         @(negedge scl);
         begin
             if (read_enable !== 1'b1)
@@ -231,7 +295,8 @@ module tb_i2c_peripheral ();
         read_valid = 1'b0;
         if(i2c_address == I2C_PERIPHERAL_ADDRESS)
         begin
-            if(r_data !== data) begin
+            if(r_data !== data)
+            begin
                 $display("ERROR: [%0t] Expected to received %0h, got %h", $time, data, r_data);
                 total_errors = total_errors + 1;
             end
@@ -240,4 +305,72 @@ module tb_i2c_peripheral ();
         #1.3us;
         // Task to read from I2C Peripheral. Does not set address
     endtask
+
+    task i2c_read_multiple_bytes(input[6:0] i2c_address, input [7:0] reg_address, input [31:0] data);
+        $display("%0t: Reading from device 0x%H, register 0x%H, expecting data 0x%H", $time,  i2c_address, reg_address, data);
+        start_condtion();
+        transmit_byte({i2c_address, 1'b0}, ack);
+        transmit_byte(reg_address, ack);
+        if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
+        begin
+            $display("ERROR: [%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
+            total_errors = total_errors + 1;
+        end
+        $display("%0t: Starting repeat start", $time);
+        repeat_start();
+        transmit_byte({i2c_address, 1'b1}, ack);
+        for (int i = 0; i < 4; i++)
+        begin
+            wait(read_enable);
+            @(negedge sys_clk);
+            read_register_data = data;
+            if(i2c_address == I2C_PERIPHERAL_ADDRESS)
+                read_valid = 1'b1;
+            //            @(negedge scl);
+
+            if(register_address !== reg_address && i2c_address == I2C_PERIPHERAL_ADDRESS)
+            begin
+                $display("ERROR: [%0t] Expected register_address %h, got %h", $time, reg_address, register_address);
+                total_errors = total_errors + 1;
+            end
+            reg_address++;
+            if (read_enable !== 1'b1)
+            begin
+                $display("ERROR: [%0t] Expected o_read_enble to be high, got %b", $time, read_enable);
+                total_errors = total_errors + 1;
+            end
+            if(sys_clk)
+            begin
+                @(negedge sys_clk);
+                @(posedge sys_clk);
+            end
+            else
+                @(posedge sys_clk);
+            if (read_ack !== 1'b1)
+            begin
+                $display("ERROR: [%0t] Expected o_read_ack to be high, got %b", $time, read_enable);
+                total_errors = total_errors + 1;
+            end
+            @(negedge sys_clk);
+            read_valid = 1'b0;
+            if(i != 3)
+                receive_byte(data, 1'b0, r_data);
+            else
+                receive_byte(data, 1'b1, r_data);
+            if(i2c_address == I2C_PERIPHERAL_ADDRESS)
+            begin
+                if(r_data !== data[7:0])
+                begin
+                    $display("ERROR: [%0t] Expected to received %0h, got %h", $time, data[7:0], r_data);
+                    total_errors = total_errors + 1;
+                end
+            end
+            data = data >> 8;
+
+        end
+        stop_condition();
+        #1.3us;
+        // Task to read from I2C Peripheral. Does not set address
+    endtask
+
 endmodule
