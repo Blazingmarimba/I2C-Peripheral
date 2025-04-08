@@ -69,11 +69,16 @@ module tb_i2c_peripheral ();
     begin
         rst_n = 1'b0;
         #100 rst_n = 1'b1;
-        i2c_write_byte(7'h33, 8'h55, 8'hAA);
-        i2c_read_byte(7'h33, 8'hAA, 8'h55);
+        // Test single byte writes and reads
+        i2c_write_byte(I2C_PERIPHERAL_ADDRESS, 8'h55, 8'hAA);
+        i2c_read_byte(I2C_PERIPHERAL_ADDRESS, 8'hAA, 8'h55);
 
-        i2c_write_multiple_bytes(7'h33, 8'h00, 32'hDEADBEEF);
-        i2c_read_multiple_bytes(7'h33, 8'h10, 32'hDEADBEEF);
+        // Test multibyte reads/writes
+        i2c_write_multiple_bytes(I2C_PERIPHERAL_ADDRESS, 8'h00, 32'hDEADBEEF);
+        i2c_read_multiple_bytes(I2C_PERIPHERAL_ADDRESS, 8'h10, 32'hDEADBEEF);
+
+        //Test reading to another address
+        i2c_write_byte(I2C_PERIPHERAL_ADDRESS + 1'b1, 8'h55, 8'hAA);
 
         $display("[%0t] Testbench done. Total Errors: %0d", $time, total_errors);
         $finish;
