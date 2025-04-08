@@ -12,7 +12,7 @@ module i2c_peripheral #(
         // parameters
         parameter SYS_CLOCK_FREQ = 100_000_000,
 
-        parameter ADDRESS_SIZE = 7,
+        parameter ADDRESS_SIZE = 10,
         parameter I2C_PERIPHERAL_ADDRESS = 'h333,
 
         parameter SYNCHRONIZER = 1,
@@ -139,8 +139,9 @@ module i2c_peripheral #(
     logic rw_n;
 
     logic peripheral_address_match;
+    logic peripheral_10_bit_address_match;
 
-    typedef enum logic[3:0] { IDLE, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, REPEAT_START, READ_INCREMENT, WRITE_INCREMENT, ERROR } FSM_States; // Need to add states to support 10-bit addresses
+    typedef enum logic[4:0] { IDLE, I2C_10BIT_ADDRESS, I2C_ADDRESS, OTHER_PERIPHERAL, ACK_10BIT_ADDRESS, ACK_ADDRESS, REG_ADDRESS, ACK_REG, WRITE_HOLD, WRITE, ACK_WRITE, READ_PREP, READ, READ_DONE, REPEAT_START, READ_INCREMENT, WRITE_INCREMENT, ERROR=5'hXX } FSM_States; // Need to add states to support 10-bit addresses
 
     FSM_States current_state;
     FSM_States next_state;
@@ -161,9 +162,24 @@ module i2c_peripheral #(
         case (current_state)
             IDLE:
                 if (start_condition)
-                    next_state = I2C_ADDRESS;
+                    if(ADDRESS_SIZE == 7)
+                        next_state = I2C_ADDRESS;
+                    else
+                        next_state = I2C_10BIT_ADDRESS;
                 else
                     next_state = IDLE;
+            I2C_10BIT_ADDRESS:
+                if(byte_transmitted && peripheral_10_bit_address_match)
+                    next_state = ACK_10BIT_ADDRESS;
+                else if (byte_transmitted && !peripheral_10_bit_address_match)
+                    next_state = OTHER_PERIPHERAL;
+                else
+                    next_state = I2C_10BIT_ADDRESS;
+            ACK_10BIT_ADDRESS:
+                if(scl_falling_edge)
+                    next_state = I2C_ADDRESS;
+                else
+                    next_state = ACK_10BIT_ADDRESS;
             I2C_ADDRESS:
                 if(byte_transmitted && peripheral_address_match)
                     next_state = ACK_ADDRESS;
@@ -268,6 +284,10 @@ module i2c_peripheral #(
         case (current_state)
             IDLE:
                 watchdog_run = 1'b0;
+            I2C_10BIT_ADDRESS:
+                receive_data = 1'b1;
+            ACK_10BIT_ADDRESS:
+                ack = 1'b1;
             I2C_ADDRESS:
                 receive_data = 1'b1;
             ACK_ADDRESS:
@@ -348,7 +368,7 @@ module i2c_peripheral #(
         if(!i_rst_n)
             register_address <= 0;
         else
-            if (current_state == REG_ADDRESS && next_state != REG_ADDRESS) // Needs updating to support auto-increment
+            if (current_state == REG_ADDRESS && next_state != REG_ADDRESS)
                 register_address <= data_register;
 
     always_ff @(posedge i_sys_clk)
@@ -372,7 +392,9 @@ module i2c_peripheral #(
 
     assign byte_transmitted = (shift_counter == 4'd8 && scl_falling_edge) ? 1'b1 : 1'b0;
 
-    assign peripheral_address_match = (data_register[7:1] == I2C_PERIPHERAL_ADDRESS) ? 1'b1 : 1'b0; // Only supports 7-bit addresses. Needs updating to support 10-bit address
+    assign peripheral_10_bit_address_match = (data_register[7:1] == {5'h1E, I2C_PERIPHERAL_ADDRESS[9:8]}) ? 1'b1 : 1'b0;
+    assign peripheral_address_match = (ADDRESS_SIZE == 7 && data_register[7:1] == I2C_PERIPHERAL_ADDRESS[6:0]) ? 1'b1 :
+           (ADDRESS_SIZE == 10 && data_register[7:0] == I2C_PERIPHERAL_ADDRESS[7:0]) ? 1'b1 : 1'b0; // Only supports 7-bit addresses. Needs updating to support 10-bit address
 
     // Watchdog logic
     logic[WATCHDOG_TIMER_WIDTH-1:0] watchdog_timer;
