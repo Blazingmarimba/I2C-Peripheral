@@ -13,7 +13,7 @@ module i2c_peripheral #(
         parameter SYS_CLOCK_FREQ = 100_000_000,
 
         parameter ADDRESS_SIZE = 7,
-        parameter I2C_PERIPHERAL_ADDRESS = 7'h33,
+        parameter I2C_PERIPHERAL_ADDRESS = 'h333,
 
         parameter SYNCHRONIZER = 1,
 
@@ -40,6 +40,34 @@ module i2c_peripheral #(
         input wire logic i_write_ack
 
     );
+
+    function automatic bit fits_in_bits(int value, int bits);
+        return (value >= 0) && (value < (1 << bits));
+    endfunction
+
+    generate
+        if(ADDRESS_SIZE != 7 && ADDRESS_SIZE != 10)
+        begin
+            initial
+            begin
+                $error("ADDRESS_SIZE must either be 7 or 10. Provided %0d", ADDRESS_SIZE);
+            end
+        end
+        if(!fits_in_bits(I2C_PERIPHERAL_ADDRESS, ADDRESS_SIZE))
+        begin
+            initial
+            begin
+                $error("I2C_PERIPHERAL_ADDRESS(0x%0h) does not fit in ADDRESS_SIZE(%0d) bits. Address needs to be between 0 and 0x%0h", I2C_PERIPHERAL_ADDRESS, ADDRESS_SIZE, (1 << bits)-1);
+            end
+        end
+        if(ADDRESS_SIZE == 7 && (I2C_PERIPHERAL_ADDRESS[6:3] == 4'h0 || I2C_PERIPHERAL_ADDRESS[6:3] == 4'hF))
+        begin
+            initial
+            begin
+                $error("I2C_PERIPHERAL_ADDRESS(0x%0h) falls in reserved range of 0x0-0x3 or 0x78-0x7F", I2C_PERIPHERAL_ADDRESS);
+            end
+        end
+    endgenerate
 
     // assign o_register_data = 8'h00;
 
