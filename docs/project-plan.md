@@ -47,8 +47,8 @@ This project is designed to grow practical skills in IP design, simulation, bus 
 | Project repo created                     | ✅ Done        | Mar 29, 2025|
 | Write initial I2C peripheral module        | ✅ Done |April 2, 2025|
 | Create testbench and run simulation      | ✅ Done     |April 5, 2025|
-| Add 10-bit addressing support            | ⏳ In Progress     ||
-| Synthesize and test on Alcitry Pt V2     | ⏳ Planned     ||
+| Add 10-bit addressing support            | ✅ Done     |April 5, 2025|
+| Synthesize and test on Alcitry Pt V2     | ⏸️ On hold, waiting for board    ||
 | Finalize README and documentation        | ⏳ Planned     ||
 
 ## Test Plan
